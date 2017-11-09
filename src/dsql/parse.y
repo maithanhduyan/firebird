@@ -604,6 +604,9 @@ using namespace Firebird;
 %token <metaNamePtr> IDLE
 %token <metaNamePtr> INVOKER
 %token <metaNamePtr> LAST_DAY
+%token <metaNamePtr> LOCAL
+%token <metaNamePtr> LOCALTIME
+%token <metaNamePtr> LOCALTIMESTAMP
 %token <metaNamePtr> MESSAGE
 %token <metaNamePtr> NATIVE
 %token <metaNamePtr> NORMALIZE_DECFLOAT
@@ -623,11 +626,14 @@ using namespace Firebird;
 %token <metaNamePtr> SQL
 %token <metaNamePtr> SYSTEM
 %token <metaNamePtr> TIES
+%token <metaNamePtr> TIMEZONE_HOUR
+%token <metaNamePtr> TIMEZONE_MINUTE
 %token <metaNamePtr> TOTALORDER
 %token <metaNamePtr> TRAPS
 %token <metaNamePtr> UNBOUNDED
 %token <metaNamePtr> VARBINARY
 %token <metaNamePtr> WINDOW
+%token <metaNamePtr> ZONE
 
 // precedence declarations for expression evaluation
 
@@ -839,6 +845,7 @@ mng_statement
 	| set_bind									{ $$ = $1; }
 	| session_statement							{ $$ = $1; }
 	| set_role									{ $$ = $1; }
+	| set_time_zone								{ $$ = $1; }
 	;
 
 
@@ -4135,7 +4142,12 @@ keyword_or_column
 	| UPDATING
 	| VAR_SAMP
 	| VAR_POP
-	| UNBOUNDED				// added in FB 4.0
+	| LOCAL					// added in FB 4.0
+	| LOCALTIME
+	| LOCALTIMESTAMP
+	| TIMEZONE_HOUR
+	| TIMEZONE_MINUTE
+	| UNBOUNDED
 	| WINDOW
 	;
 
@@ -4603,11 +4615,36 @@ non_charset_simple_type
 			$$->dtype = dtype_sql_time;
 			$$->length = sizeof(SLONG);
 		}
+	| TIME WITH TIME ZONE
+		{
+			$$ = newNode<dsql_fld>();
+
+			if (client_dialect < SQL_DIALECT_V6_TRANSITION)
+			{
+				ERRD_post(Arg::Gds(isc_sqlerr) << Arg::Num(-104) <<
+						  Arg::Gds(isc_sql_dialect_datatype_unsupport) << Arg::Num(client_dialect) <<
+																		  Arg::Str("TIME"));
+			}
+			if (db_dialect < SQL_DIALECT_V6_TRANSITION)
+			{
+				ERRD_post(Arg::Gds(isc_sqlerr) << Arg::Num(-104) <<
+						  Arg::Gds(isc_sql_db_dialect_dtype_unsupport) << Arg::Num(db_dialect) <<
+																		  Arg::Str("TIME"));
+			}
+			$$->dtype = dtype_sql_time_tz;
+			$$->length = sizeof(ISC_TIME_TZ);
+		}
 	| TIMESTAMP
 		{
 			$$ = newNode<dsql_fld>();
 			$$->dtype = dtype_timestamp;
 			$$->length = sizeof(GDS_TIMESTAMP);
+		}
+	| TIMESTAMP WITH TIME ZONE
+		{
+			$$ = newNode<dsql_fld>();
+			$$->dtype = dtype_timestamp_tz;
+			$$->length = sizeof(ISC_TIMESTAMP_TZ);
 		}
 	| BOOLEAN
 		{
@@ -5192,6 +5229,14 @@ timepart_ses_stmt_tout
 	| MINUTE		{ $$ = blr_extract_minute; }
 	| SECOND		{ $$ = blr_extract_second; }
 	| MILLISECOND	{ $$ = blr_extract_millisecond; }
+	;
+
+%type <mngNode> set_time_zone
+set_time_zone
+	: SET TIME ZONE sql_string
+		{ $$ = newNode<SetTimeZoneNode>($4->getString()); }
+	| SET TIME ZONE LOCAL
+		{ $$ = newNode<SetTimeZoneNode>(); }
 	;
 
 %type tran_option_list_opt(<setTransactionNode>)
@@ -7136,6 +7181,24 @@ datetime_value_expression
 
 			$$ = newNode<CurrentDateNode>();
 		}
+	| LOCALTIME time_precision_opt
+		{
+			if (client_dialect < SQL_DIALECT_V6_TRANSITION)
+			{
+				ERRD_post(Arg::Gds(isc_sqlerr) << Arg::Num(-104) <<
+						  Arg::Gds(isc_sql_dialect_datatype_unsupport) << Arg::Num(client_dialect) <<
+						  												  Arg::Str("TIME"));
+			}
+
+			if (db_dialect < SQL_DIALECT_V6_TRANSITION)
+			{
+				ERRD_post(Arg::Gds(isc_sqlerr) << Arg::Num(-104) <<
+						  Arg::Gds(isc_sql_db_dialect_dtype_unsupport) << Arg::Num(db_dialect) <<
+						  												  Arg::Str("TIME"));
+			}
+
+			$$ = newNode<LocalTimeNode>($2);
+		}
 	| CURRENT_TIME time_precision_opt
 		{
 			if (client_dialect < SQL_DIALECT_V6_TRANSITION)
@@ -7154,6 +7217,8 @@ datetime_value_expression
 
 			$$ = newNode<CurrentTimeNode>($2);
 		}
+	| LOCALTIMESTAMP timestamp_precision_opt
+		{ $$ = newNode<LocalTimeStampNode>($2); }
 	| CURRENT_TIMESTAMP timestamp_precision_opt
 		{ $$ = newNode<CurrentTimeStampNode>($2); }
 	;
@@ -8082,6 +8147,8 @@ timestamp_part
 	| MINUTE		{ $$ = blr_extract_minute; }
 	| SECOND		{ $$ = blr_extract_second; }
 	| MILLISECOND	{ $$ = blr_extract_millisecond; }
+	| TIMEZONE_HOUR	{ $$ = blr_extract_timezone_hour; }
+	| TIMEZONE_MINUTE	{ $$ = blr_extract_timezone_minute; }
 	| WEEK			{ $$ = blr_extract_week; }
 	| WEEKDAY		{ $$ = blr_extract_weekday; }
 	| YEARDAY		{ $$ = blr_extract_yearday; }
@@ -8508,6 +8575,7 @@ non_reserved_word
 	| TIES
 	| TOTALORDER
 	| TRAPS
+	| ZONE
 	;
 
 %%
