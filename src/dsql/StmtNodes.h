@@ -1728,10 +1728,6 @@ public:
 
 	virtual void execute(thread_db* tdbb, dsql_req* request) const;
 
-private:
-	void skipSpaces(const char*& p, const char* end) const;
-	int parseNumber(const char*& p, const char* end) const;
-
 public:
 	Firebird::string str;
 	bool local;
